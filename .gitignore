@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+dist/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Configuration files (contain sensitive data)
+.env
+config.json
+mcp-server.json
+
+# Agent data
+.go-agent/
+.go-agent/
+
+# Logs
+*.log
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

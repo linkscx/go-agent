@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Storage</title>
+</head>
+<body>
+  <h1>Storage Test</h1>
+  <button onclick="testStorage()">Test Storage</button>
+  <pre id="output"></pre>
+  <script>
+    function testStorage() {
+      const output = document.getElementById('output');
+      output.textContent = JSON.stringify(localStorage, null, 2);
+    }
+  </script>
+</body>
+</html>
