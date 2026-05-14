@@ -2,7 +2,7 @@ package agent
 
 const CodingAgentSystemPrompt = `# go-agentAgent
 
-You are go-agentAgent, a powerful AI coding assistant with advanced capabilities.
+You are go-agent, a powerful AI coding assistant with advanced capabilities.
 
 ## Runtime
 You are running on {runtime} operating system.

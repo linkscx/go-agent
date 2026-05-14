@@ -4,7 +4,6 @@ import type {
   ThreadAssistantMessage,
   ThreadAssistantMessagePart,
   ThreadUserMessage,
-  ToolCallMessagePart,
 } from '@assistant-ui/react'
 import { ThreadPrimitive, useAui, useAuiState } from '@assistant-ui/react'
 import type { ReadonlyJSONObject, ReadonlyJSONValue } from 'assistant-stream/utils'
@@ -15,15 +14,26 @@ import AssistantThreadMessage from './message'
 
 export default function AssistantThread() {
   const aui = useAui()
-  const remoteId = useAuiState((s) => {
-    const activeThreadId = s.threads.mainThreadId
-    return s.threads.threadItems.find((item) => item.id === activeThreadId)?.remoteId
-  })
+  const mainThreadId = useAuiState((s) => s.threads.mainThreadId)
+  const threadItems = useAuiState((s) => s.threads.threadItems)
   const messageCount = useAuiState((s) => s.thread.messages.length)
   const isLoading = useAuiState((s) => s.thread.isLoading)
   const isRunning = useAuiState((s) => s.thread.isRunning)
+
+  const remoteId = (() => {
+    if (!mainThreadId) return undefined
+    const item = threadItems.find((i) => i.id === mainThreadId)
+    if (item?.remoteId) return item.remoteId
+    if (mainThreadId.startsWith('__LOCALID')) return undefined
+    return mainThreadId
+  })()
+
   const [hydratedRemoteId, setHydratedRemoteId] = useState<string | null>(null)
   const [hydrationError, setHydrationError] = useState<string | null>(null)
+
+  const isInitializing = Boolean(
+    mainThreadId && mainThreadId.startsWith('__LOCALID') && !remoteId,
+  )
 
   const needsHydration = Boolean(
     remoteId && messageCount === 0 && hydratedRemoteId !== remoteId && !isRunning,
@@ -34,31 +44,28 @@ export default function AssistantThread() {
   }, [remoteId])
 
   useEffect(() => {
-    if (!remoteId) {
-      setHydratedRemoteId(null)
-      return
-    }
     if (!needsHydration) return
-
     let cancelled = false
-    setHydrationError(null)
-
-    void fetchThreadMessages(remoteId)
-      .then((history) => {
+    const loadHistory = async () => {
+      try {
+        const messages = await fetchThreadMessages(remoteId!)
         if (cancelled) return
-        aui.thread().import(buildHistoryRepository(history))
-        setHydratedRemoteId(remoteId)
-      })
-      .catch((error) => {
+        if (messages.length === 0) {
+          setHydratedRemoteId(remoteId!)
+          return
+        }
+        const repository = buildHistoryRepository(messages)
+        aui.thread().import(repository)
+        setHydratedRemoteId(remoteId!)
+      } catch (e) {
         if (cancelled) return
-        console.error('Failed to hydrate thread history:', error)
-        setHydrationError(error instanceof Error ? error.message : 'Unknown history error')
-      })
-
-    return () => {
-      cancelled = true
+        console.error('Failed to hydrate thread:', e)
+        setHydrationError('Failed to load conversation history.')
+      }
     }
-  }, [aui, needsHydration, remoteId])
+    loadHistory()
+    return () => { cancelled = true }
+  }, [needsHydration, remoteId, aui.thread])
 
   return (
     <ThreadPrimitive.Root
@@ -88,9 +95,11 @@ export default function AssistantThread() {
           >
             {hydrationError
               ? 'Failed to load conversation history.'
-              : needsHydration
-                ? 'Loading conversation...'
-                : 'Start a conversation...'}
+              : isInitializing
+                ? 'Initializing conversation...'
+                : needsHydration
+                  ? 'Loading conversation...'
+                  : 'Start a conversation...'}
           </div>
         ) : null}
 
@@ -106,97 +115,111 @@ export default function AssistantThread() {
 
 function buildHistoryRepository(history: ChatMessageVO[]): ExportedMessageRepository {
   const messages: ExportedMessageRepository['messages'] = []
+  const messageMap = new Map<string, ChatMessageVO>()
 
   for (const item of history) {
-    const userMessageId = toUserMessageId(item.message_id)
-    const userMessage: ThreadUserMessage = {
-      id: userMessageId,
-      role: 'user',
-      createdAt: toDate(item.created_at),
-      content: [{ type: 'text', text: item.query }],
-      attachments: [],
-      metadata: {
-        custom: {},
-      },
-    }
+    messageMap.set(item.id, item)
+  }
 
-    const assistantMessage: ThreadAssistantMessage = {
-      id: item.message_id,
-      role: 'assistant',
-      createdAt: toDate(item.created_at),
-      content: buildAssistantParts(item),
-      status: { type: 'complete', reason: 'stop' },
-      metadata: {
-        unstable_state: null,
-        unstable_annotations: [],
-        unstable_data: [],
-        steps: [],
-        custom: {
-          backendMessageId: item.message_id,
+  for (const item of history) {
+    const createdAt = toDate(item.created_at)
+
+    if (item.role === 'user') {
+      const userMessage: ThreadUserMessage = {
+        id: item.id,
+        role: 'user',
+        createdAt,
+        content: [{ type: 'text', text: item.content }],
+        attachments: [],
+        metadata: {
+          custom: {},
         },
-      },
-    }
+      }
 
-    messages.push({
-      parentId: item.parent_message_id || null,
-      message: userMessage,
-    })
-    messages.push({
-      parentId: userMessageId,
-      message: assistantMessage,
-    })
-  }
+      messages.push({
+        parentId: item.parent_message_id || null,
+        message: userMessage,
+      })
+    } else if (item.role === 'assistant') {
+      const rounds = parseRounds(item.rounds)
+      const assistantMessage: ThreadAssistantMessage = {
+        id: item.id,
+        role: 'assistant',
+        createdAt,
+        content: buildAssistantPartsFromRounds(rounds, item.content),
+        status: { type: 'complete', reason: 'stop' },
+        metadata: {
+          unstable_state: null,
+          unstable_annotations: [],
+          unstable_data: [],
+          steps: [],
+          custom: {
+            backendMessageId: item.id,
+          },
+        },
+      }
 
-  return {
-    headId: history.length > 0 ? history[history.length - 1]?.message_id ?? null : null,
-    messages,
-  }
-}
-
-function buildAssistantParts(item: ChatMessageVO): ThreadAssistantMessagePart[] {
-  const parts: ThreadAssistantMessagePart[] = [...buildToolParts(item.rounds ?? [])]
-
-  if (item.response) {
-    parts.push({ type: 'text', text: item.response })
-  }
-
-  return parts
-}
-
-function buildToolParts(rounds: RoundMessageVO[]): ToolCallMessagePart[] {
-  const toolParts: ToolCallMessagePart[] = []
-  const toolIndexes = new Map<string, number>()
-
-  for (const round of rounds) {
-    if (round.role !== 'assistant' || !round.tool_calls?.length) continue
-
-    for (const toolCall of round.tool_calls) {
-      toolIndexes.set(toolCall.id, toolParts.length)
-      toolParts.push({
-        type: 'tool-call',
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        args: parseToolArgs(toolCall.arguments),
-        argsText: toolCall.arguments,
+      messages.push({
+        parentId: item.parent_message_id || null,
+        message: assistantMessage,
       })
     }
   }
 
+  return {
+    headId: history.length > 0 ? history[history.length - 1]?.id ?? null : null,
+    messages,
+  }
+}
+
+function parseRounds(roundsJson: string): RoundMessageVO[] {
+  try {
+    const parsed = JSON.parse(roundsJson)
+    if (Array.isArray(parsed)) return parsed
+    return []
+  } catch {
+    return []
+  }
+}
+
+function buildAssistantPartsFromRounds(rounds: RoundMessageVO[], assistantContent: string): ThreadAssistantMessagePart[] {
+  const parts: ThreadAssistantMessagePart[] = []
+
+  const toolCallIds: string[] = []
   for (const round of rounds) {
-    if (round.role !== 'tool' || !round.tool_id) continue
-    const index = toolIndexes.get(round.tool_id)
-    if (index === undefined) continue
-
-    const current = toolParts[index]
-    if (!current) continue
-
-    toolParts[index] = {
-      ...current,
-      result: parseJSON(round.content ?? '') ?? round.content,
+    if (round.role === 'assistant' && round.tool_calls?.length) {
+      for (const tc of round.tool_calls) {
+        toolCallIds.push(tc.id)
+        parts.push({
+          type: 'tool-call',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          args: parseToolArgs(tc.arguments),
+          argsText: tc.arguments,
+        })
+      }
     }
   }
 
-  return toolParts
+  const toolResultMap = new Map<string, string>()
+  for (const round of rounds) {
+    if (round.role === 'tool' && round.tool_id) {
+      const content = round.content ?? ''
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const part = parts[i]
+        if (part?.type === 'tool-call' && part.toolCallId === round.tool_id) {
+          parts[i] = { ...part, result: parseJSON(content) ?? content }
+          break
+        }
+      }
+    }
+  }
+
+  if (assistantContent) {
+    parts.push({ type: 'text', text: assistantContent })
+  }
+
+  return parts
 }
 
 function parseToolArgs(argsText: string): ReadonlyJSONObject {
@@ -217,10 +240,8 @@ function parseJSON(value: string): unknown {
   }
 }
 
-function toUserMessageId(messageId: string): string {
-  return `${messageId}:user`
-}
-
-function toDate(timestampSeconds: number): Date {
-  return new Date(timestampSeconds * 1000)
+function toDate(value: number | string): Date {
+  if (typeof value === 'number') return new Date(value * 1000)
+  const date = new Date(value)
+  return isNaN(date.getTime()) ? new Date() : date
 }

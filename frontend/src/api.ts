@@ -32,14 +32,13 @@ export interface RoundMessageVO {
 }
 
 export interface ChatMessageVO {
-  message_id: string
+  id: string
   conversation_id: string
   parent_message_id: string
-  query: string
-  response: string
-  model: string
-  created_at: number
-  rounds?: RoundMessageVO[]
+  role: 'user' | 'assistant'
+  content: string
+  rounds: string
+  created_at: string
 }
 
 export interface SSEMessageVO {

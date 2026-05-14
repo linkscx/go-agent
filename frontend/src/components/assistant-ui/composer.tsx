@@ -4,32 +4,6 @@ import { useAui, useAuiState } from '@assistant-ui/react'
 
 import { Button } from '../ui/button'
 
-const STORAGE_KEY = 'aui_state'
-
-function saveUserMessageToStorage(text: string): void {
-  try {
-    const stateStr = localStorage.getItem(STORAGE_KEY)
-    if (stateStr) {
-      const state = JSON.parse(stateStr)
-      if (state.mainThreadId) {
-        const thread = state.threads.get(state.mainThreadId)
-        if (thread) {
-          const userMessage = {
-            id: `${Date.now()}:user`,
-            role: 'user' as const,
-            content: [{ type: 'text' as const, text }],
-            metadata: { custom: {} },
-          }
-          thread.messages.push(userMessage)
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-        }
-      }
-    }
-  } catch (e) {
-    console.error('Failed to save user message:', e)
-  }
-}
-
 export default function AssistantComposer() {
   const aui = useAui()
   const [input, setInput] = useState('')
@@ -74,9 +48,6 @@ export default function AssistantComposer() {
       composer.setText(input)
     }
     composer.send()
-
-    // 保存用户消息到 localStorage
-    saveUserMessageToStorage(input)
     setInput('')
   }
 

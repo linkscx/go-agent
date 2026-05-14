@@ -7,8 +7,13 @@ import type {
 } from '@assistant-ui/react'
 import type { ReadonlyJSONObject } from 'assistant-stream/utils'
 
-import { streamThreadRun, type SSEMessageVO, createThread } from '../../api'
-import type { PersistentThreadState } from './persistent-thread-adapter'
+import { streamThreadRun, type SSEMessageVO } from '../../api'
+
+let _getThreadId: (() => string | undefined) | null = null
+
+export function bindThreadIdSource(fn: () => string | undefined) {
+  _getThreadId = fn
+}
 
 interface TransportErrorItem {
   type: 'transport-error'
@@ -68,10 +73,15 @@ export const goAgentChatModelAdapter: ChatModelAdapter = {
   async *run(options) {
     let threadId = options.unstable_threadId
 
-    // 如果没有 threadId，创建一个新对话
     if (!threadId) {
-      const conversation = await createThread()
-      threadId = conversation.id
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 100))
+        threadId = _getThreadId?.()
+        if (threadId) break
+      }
+      if (!threadId) {
+        throw new Error('Conversation not initialized yet')
+      }
     }
 
     const query = getLatestUserQuery(options.messages)
@@ -116,9 +126,6 @@ export const goAgentChatModelAdapter: ChatModelAdapter = {
 
         const update = applySSEEvent(state, item)
         if (update) yield update
-
-        // 保存消息到本地存储
-        saveMessagesToStorage(threadId, options.messages)
       }
     } finally {
       stop()
@@ -314,25 +321,4 @@ function cloneAssistantParts(parts: readonly ThreadAssistantMessagePart[]): Thre
     }
     return { ...part }
   })
-}
-
-function saveMessagesToStorage(threadId: string, messages: readonly ThreadMessage[]): void {
-  try {
-    const stateStr = localStorage.getItem('aui_state')
-    if (stateStr) {
-      const parsed = JSON.parse(stateStr)
-      // Convert plain object back to Map (JSON doesn't serialize Maps)
-      const threads: Map<string, any> = parsed.threads && typeof parsed.threads === 'object' && !(parsed.threads instanceof Map)
-        ? new Map(Object.entries(parsed.threads))
-        : parsed.threads
-      const thread = threads.get(threadId)
-      if (thread) {
-        thread.messages = messages
-        // Convert Map back to object for JSON serialization
-        localStorage.setItem('aui_state', JSON.stringify({ ...parsed, threads: Object.fromEntries(threads) }))
-      }
-    }
-  } catch (e) {
-    console.error('Failed to save messages to storage:', e)
-  }
 }
