@@ -193,9 +193,9 @@ function buildAssistantPartsFromRounds(rounds: RoundMessageVO[], assistantConten
         parts.push({
           type: 'tool-call',
           toolCallId: tc.id,
-          toolName: tc.name,
-          args: parseToolArgs(tc.arguments),
-          argsText: tc.arguments,
+          toolName: (tc as any).name ?? (tc as any).function?.name ?? '',
+          args: parseToolArgs((tc as any).arguments ?? (tc as any).function?.arguments ?? ''),
+          argsText: (tc as any).arguments ?? (tc as any).function?.arguments ?? '',
         })
       }
     }

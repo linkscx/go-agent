@@ -19,8 +19,13 @@ export interface ConversationVO {
 
 export interface ToolCallVO {
   id: string
-  name: string
-  arguments: string
+  type?: string
+  function?: {
+    name: string
+    arguments: string
+  }
+  name?: string
+  arguments?: string
 }
 
 export interface RoundMessageVO {
