@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Square } from 'lucide-react'
 import { useAui, useAuiState } from '@assistant-ui/react'
 
 import { Button } from '../ui/button'
@@ -35,11 +35,15 @@ export default function AssistantComposer() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      if (isRunning) {
+        aui.composer().cancel()
+      } else {
+        handleSend()
+      }
     }
   }
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!input.trim() || isDisabled) return
 
     const composer = aui.composer()
@@ -49,6 +53,10 @@ export default function AssistantComposer() {
     }
     composer.send()
     setInput('')
+  }
+
+  const handleCancel = () => {
+    aui.composer().cancel()
   }
 
   return (
@@ -84,14 +92,28 @@ export default function AssistantComposer() {
             resize: 'none',
           }}
         />
-        <Button
-          size="icon"
-          aria-label="Send message"
-          onClick={handleSend}
-          disabled={isDisabled || !input.trim() || isRunning}
-        >
-          <Send size={16} />
-        </Button>
+        {isRunning ? (
+          <Button
+            size="icon"
+            aria-label="Stop generating"
+            onClick={handleCancel}
+            style={{
+              background: 'var(--accent)',
+              color: '#fff',
+            }}
+          >
+            <Square size={14} fill="#fff" />
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            aria-label="Send message"
+            onClick={handleSend}
+            disabled={isDisabled || !input.trim()}
+          >
+            <Send size={16} />
+          </Button>
+        )}
       </div>
     </div>
   )
