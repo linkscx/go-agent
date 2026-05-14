@@ -27,6 +27,7 @@ func NewService(agentInstance *agent.Agent, db *DB) *Service {
 }
 
 type StreamEvent struct {
+	MessageID        string `json:"message_id"`
 	Event            string `json:"event"`
 	Content          string `json:"content,omitempty"`
 	ReasoningContent string `json:"reasoning_content,omitempty"`
@@ -91,19 +92,20 @@ func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessage
 	}
 
 	userMsg := &ChatMessage{
-		ID:               uuid.New().String(),
-		ConversationID:   conversationID,
-		ParentMessageID:  parentMessageID,
-		Role:             "user",
-		Content:          userQuery,
-		Rounds:           mustMarshalJSON([]openai.ChatCompletionMessageParamUnion{openai.UserMessage(userQuery)}),
-		CreatedAt:        time.Now(),
+		ID:              uuid.New().String(),
+		ConversationID:  conversationID,
+		ParentMessageID: parentMessageID,
+		Role:            "user",
+		Content:         userQuery,
+		Rounds:          mustMarshalJSON([]openai.ChatCompletionMessageParamUnion{openai.UserMessage(userQuery)}),
+		CreatedAt:       time.Now(),
 	}
 	if err := s.db.CreateMessage(ctx, userMsg); err != nil {
 		return nil, fmt.Errorf("failed to save user message: %w", err)
 	}
 
-	// Reset context engine and seed with conversation history
+	assistantMsgID := uuid.New().String()
+
 	s.agent.ResetSession()
 	s.agent.SeedHistory(history)
 
@@ -114,7 +116,7 @@ func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessage
 		defer close(viewCh)
 		if err := s.agent.RunStreaming(ctx, userQuery, viewCh, confirmCh); err != nil {
 			log.Printf("agent error: %v", err)
-			eventCh <- StreamEvent{Event: "error", Content: err.Error()}
+			eventCh <- StreamEvent{MessageID: assistantMsgID, Event: "error", Content: err.Error()}
 		}
 	}()
 
@@ -125,15 +127,16 @@ func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessage
 		case agent.MessageTypeContent:
 			if vo.Content != nil {
 				assistantContent += *vo.Content
-				eventCh <- StreamEvent{Event: "content", Content: *vo.Content}
+				eventCh <- StreamEvent{MessageID: assistantMsgID, Event: "content", Content: *vo.Content}
 			}
 		case agent.MessageTypeReasoning:
 			if vo.ReasoningContent != nil {
-				eventCh <- StreamEvent{Event: "reasoning", ReasoningContent: *vo.ReasoningContent}
+				eventCh <- StreamEvent{MessageID: assistantMsgID, Event: "reasoning", ReasoningContent: *vo.ReasoningContent}
 			}
 		case agent.MessageTypeToolCall:
 			if vo.ToolCall != nil {
 				eventCh <- StreamEvent{
+					MessageID:     assistantMsgID,
 					Event:         "tool_call",
 					ToolCall:      vo.ToolCall.Name,
 					ToolArguments: vo.ToolCall.Arguments,
@@ -141,18 +144,17 @@ func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessage
 			}
 		case agent.MessageTypeError:
 			if vo.Content != nil {
-				eventCh <- StreamEvent{Event: "error", Content: *vo.Content}
+				eventCh <- StreamEvent{MessageID: assistantMsgID, Event: "error", Content: *vo.Content}
 			}
 		case agent.MessageTypeToolConfirm:
 			confirmCh <- agent.ConfirmAllow
 		}
 	}
 
-	// Build rounds from context engine to capture full turn (tool calls + responses)
 	roundMessages := s.agent.GetTurnMessages()
 
 	assistantMsg := &ChatMessage{
-		ID:              uuid.New().String(),
+		ID:              assistantMsgID,
 		ConversationID:  conversationID,
 		ParentMessageID: userMsg.ID,
 		Role:            "assistant",

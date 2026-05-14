@@ -6,11 +6,11 @@ import { createAssistantStream } from 'assistant-stream'
 import {
   THREAD_OPERATION_SUPPORT,
   archiveThread,
-  createThread,
   deleteThread,
   fetchThreads,
   renameThread,
 } from '../../api'
+import { initializeConversation } from '../../lib/conversation-init'
 
 export const persistentThreadListAdapter: RemoteThreadListAdapter = {
   async list() {
@@ -32,7 +32,7 @@ export const persistentThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async initialize(localId) {
-    const conversation = await createThread()
+    const conversation = await initializeConversation(localId)
 
     return {
       remoteId: conversation.id,

@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -99,19 +100,24 @@ func (s *SemanticSearcher) Search(ctx context.Context, query string, topK int) (
 		return nil, err
 	}
 
+	log.Printf("[semantic_search] query=%q, vector_results=%d", query, len(vectorResults))
+
 	if len(vectorResults) == 0 {
 		return []SearchResult{}, nil
 	}
 
 	candidates := make([]Chunk, len(vectorResults))
+	scoreByContent := make(map[string]float32, len(vectorResults))
 	for i, result := range vectorResults {
 		candidates[i] = result.Chunk
+		scoreByContent[result.Chunk.Content] = result.Score
 	}
 
 	var rerankedChunks []Chunk
 	if s.rerankService != nil {
 		rerankedChunks, err = s.rerankService.Rerank(ctx, query, candidates, topK)
 		if err != nil || len(rerankedChunks) == 0 {
+			log.Printf("[semantic_search] rerank failed (err=%v), fallback to vector results", err)
 			rerankedChunks = candidates
 			if len(rerankedChunks) > topK {
 				rerankedChunks = rerankedChunks[:topK]
@@ -126,13 +132,16 @@ func (s *SemanticSearcher) Search(ctx context.Context, query string, topK int) (
 
 	results := make([]SearchResult, len(rerankedChunks))
 	for i, chunk := range rerankedChunks {
+		score := scoreByContent[chunk.Content]
 		results[i] = SearchResult{
 			FilePath:  chunk.Meta.DocumentID,
 			StartLine: chunk.Meta.StartPos,
 			EndLine:   chunk.Meta.EndPos,
 			Content:   chunk.Content,
-			Score:     0.0,
+			Score:     score,
 		}
+		log.Printf("[semantic_search] result %d: file=%s lines=%d-%d score=%.4f",
+			i+1, chunk.Meta.DocumentID, chunk.Meta.StartPos, chunk.Meta.EndPos, score)
 	}
 
 	return results, nil

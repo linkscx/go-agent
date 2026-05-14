@@ -227,12 +227,12 @@ function parseToolArgs(argsText: string): ReadonlyJSONObject {
   if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
     return parsed as ReadonlyJSONObject
   }
-  if (!argsText.trim()) return {}
+  if (!argsText || !argsText.trim()) return {}
   return { raw: (parsed ?? argsText) as ReadonlyJSONValue }
 }
 
 function parseJSON(value: string): unknown {
-  if (!value.trim()) return undefined
+  if (!value || !value.trim()) return undefined
   try {
     return JSON.parse(value)
   } catch {

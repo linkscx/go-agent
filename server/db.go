@@ -2,179 +2,119 @@ package server
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type Conversation struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Archived  bool      `json:"archived"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `json:"id" gorm:"primaryKey"`
+	Title     string    `json:"title" gorm:"not null"`
+	Archived  bool      `json:"archived" gorm:"not null;default:false"`
+	CreatedAt time.Time `json:"created_at" gorm:"not null"`
+	UpdatedAt time.Time `json:"updated_at" gorm:"not null"`
 }
 
 type ChatMessage struct {
-	ID              string    `json:"id"`
-	ConversationID  string    `json:"conversation_id"`
-	ParentMessageID string    `json:"parent_message_id"`
-	Role            string    `json:"role"`
-	Content         string    `json:"content"`
-	Rounds          string    `json:"rounds"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string    `json:"id" gorm:"primaryKey"`
+	ConversationID  string    `json:"conversation_id" gorm:"not null;index"`
+	ParentMessageID string    `json:"parent_message_id" gorm:"index"`
+	Role            string    `json:"role" gorm:"not null"`
+	Content         string    `json:"content" gorm:"type:text;not null"`
+	Rounds          string    `json:"rounds" gorm:"type:text;not null"`
+	CreatedAt       time.Time `json:"created_at" gorm:"not null"`
+
+	Conversation Conversation `gorm:"foreignKey:ConversationID"`
+}
+
+type OffloadEntry struct {
+	Key   string `gorm:"primaryKey"`
+	Value string `gorm:"type:text;not null"`
 }
 
 type DB struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewDB(dbPath string) (*DB, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+type DBConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
+}
+
+func NewDB(config DBConfig) (*DB, error) {
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		config.Host, config.Port, config.User, config.Password, config.Database)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		return nil, err
+	if err := db.AutoMigrate(&Conversation{}, &ChatMessage{}, &OffloadEntry{}); err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	d := &DB{db: db}
-	if err := d.initSchema(); err != nil {
-		return nil, err
-	}
-
-	return d, nil
-}
-
-func (d *DB) initSchema() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS conversations (
-		id TEXT PRIMARY KEY,
-		title TEXT NOT NULL,
-		archived INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS chat_messages (
-		id TEXT PRIMARY KEY,
-		conversation_id TEXT NOT NULL,
-		parent_message_id TEXT,
-		role TEXT NOT NULL,
-		content TEXT NOT NULL,
-		rounds TEXT NOT NULL,
-		created_at DATETIME NOT NULL,
-		FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id);
-	CREATE INDEX IF NOT EXISTS idx_messages_parent ON chat_messages(parent_message_id);
-	`
-
-	_, err := d.db.Exec(schema)
-	return err
+	return &DB{db: db}, nil
 }
 
 func (d *DB) CreateConversation(ctx context.Context, conv *Conversation) error {
-	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO conversations (id, title, archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-		conv.ID, conv.Title, conv.Archived, conv.CreatedAt, conv.UpdatedAt)
-	return err
+	return d.db.WithContext(ctx).Create(conv).Error
 }
 
 func (d *DB) GetConversation(ctx context.Context, id string) (*Conversation, error) {
-	conv := &Conversation{}
-	err := d.db.QueryRowContext(ctx,
-		"SELECT id, title, archived, created_at, updated_at FROM conversations WHERE id = ?", id).
-		Scan(&conv.ID, &conv.Title, &conv.Archived, &conv.CreatedAt, &conv.UpdatedAt)
+	var conv Conversation
+	err := d.db.WithContext(ctx).Where("id = ?", id).First(&conv).Error
 	if err != nil {
 		return nil, err
 	}
-	return conv, nil
+	return &conv, nil
 }
 
 func (d *DB) ListConversations(ctx context.Context) ([]*Conversation, error) {
-	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, title, archived, created_at, updated_at FROM conversations ORDER BY updated_at DESC")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var convs []*Conversation
-	for rows.Next() {
-		conv := &Conversation{}
-		if err := rows.Scan(&conv.ID, &conv.Title, &conv.Archived, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
-			return nil, err
-		}
-		convs = append(convs, conv)
-	}
-	return convs, rows.Err()
+	err := d.db.WithContext(ctx).Order("updated_at DESC").Find(&convs).Error
+	return convs, err
 }
 
 func (d *DB) UpdateConversation(ctx context.Context, id string, updatedAt time.Time) error {
-	_, err := d.db.ExecContext(ctx,
-		"UPDATE conversations SET updated_at = ? WHERE id = ?", updatedAt, id)
-	return err
+	return d.db.WithContext(ctx).Model(&Conversation{}).Where("id = ?", id).Update("updated_at", updatedAt).Error
 }
 
 func (d *DB) UpdateConversationTitle(ctx context.Context, id string, title string) error {
-	_, err := d.db.ExecContext(ctx,
-		"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?", title, time.Now(), id)
-	return err
+	return d.db.WithContext(ctx).Model(&Conversation{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"title": title, "updated_at": time.Now()}).Error
 }
 
 func (d *DB) ArchiveConversation(ctx context.Context, id string, archived bool) error {
-	_, err := d.db.ExecContext(ctx,
-		"UPDATE conversations SET archived = ?, updated_at = ? WHERE id = ?", archived, time.Now(), id)
-	return err
+	return d.db.WithContext(ctx).Model(&Conversation{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"archived": archived, "updated_at": time.Now()}).Error
 }
 
 func (d *DB) DeleteConversation(ctx context.Context, id string) error {
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, "DELETE FROM chat_messages WHERE conversation_id = ?", id); err != nil {
-		return err
-	}
-
-	if _, err := tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return d.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&Conversation{}).Error
+	})
 }
 
 func (d *DB) ListMessages(ctx context.Context, conversationID string) ([]*ChatMessage, error) {
-	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, conversation_id, parent_message_id, role, content, rounds, created_at FROM chat_messages WHERE conversation_id = ? ORDER BY created_at ASC",
-		conversationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var messages []*ChatMessage
-	for rows.Next() {
-		msg := &ChatMessage{}
-		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.ParentMessageID, &msg.Role, &msg.Content, &msg.Rounds, &msg.CreatedAt); err != nil {
-			return nil, err
-		}
-		messages = append(messages, msg)
-	}
-	return messages, rows.Err()
+	err := d.db.WithContext(ctx).
+		Where("conversation_id = ?", conversationID).
+		Order("created_at ASC").
+		Find(&messages).Error
+	return messages, err
 }
 
 func (d *DB) CreateMessage(ctx context.Context, msg *ChatMessage) error {
-	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO chat_messages (id, conversation_id, parent_message_id, role, content, rounds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		msg.ID, msg.ConversationID, msg.ParentMessageID, msg.Role, msg.Content, msg.Rounds, msg.CreatedAt)
-	return err
+	return d.db.WithContext(ctx).Create(msg).Error
 }
 
 func (d *DB) GetMessageChain(ctx context.Context, conversationID, messageID string) ([]*ChatMessage, error) {
@@ -182,23 +122,61 @@ func (d *DB) GetMessageChain(ctx context.Context, conversationID, messageID stri
 	currentID := messageID
 
 	for currentID != "" {
-		msg := &ChatMessage{}
-		err := d.db.QueryRowContext(ctx,
-			"SELECT id, conversation_id, parent_message_id, role, content, rounds, created_at FROM chat_messages WHERE id = ?",
-			currentID).Scan(&msg.ID, &msg.ConversationID, &msg.ParentMessageID, &msg.Role, &msg.Content, &msg.Rounds, &msg.CreatedAt)
+		var msg ChatMessage
+		err := d.db.WithContext(ctx).Where("id = ?", currentID).First(&msg).Error
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if err == gorm.ErrRecordNotFound {
 				break
 			}
 			return nil, err
 		}
-		messages = append([]*ChatMessage{msg}, messages...)
+		messages = append([]*ChatMessage{&msg}, messages...)
 		currentID = msg.ParentMessageID
 	}
 
 	return messages, nil
 }
 
+func (d *DB) Raw() *gorm.DB {
+	return d.db
+}
+
+func (d *DB) StoreOffload(ctx context.Context, key string, value string) error {
+	return d.db.WithContext(ctx).Save(&OffloadEntry{Key: key, Value: value}).Error
+}
+
+func (d *DB) LoadOffload(ctx context.Context, key string) (string, error) {
+	var entry OffloadEntry
+	err := d.db.WithContext(ctx).Where("key = ?", key).First(&entry).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", fmt.Errorf("offload key not found: %s", key)
+		}
+		return "", err
+	}
+	return entry.Value, nil
+}
+
 func (d *DB) Close() error {
-	return d.db.Close()
+	sqlDB, err := d.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+type DBStorage struct {
+	db *DB
+}
+
+func NewDBStorage(db *DB) *DBStorage {
+	return &DBStorage{db: db}
+}
+
+func (s *DBStorage) Store(ctx context.Context, key string, value string) error {
+	return s.db.StoreOffload(ctx, key, value)
+}
+
+func (s *DBStorage) Load(ctx context.Context, key string) (string, error) {
+	return s.db.LoadOffload(ctx, key)
 }

@@ -7,13 +7,8 @@ import type {
 } from '@assistant-ui/react'
 import type { ReadonlyJSONObject } from 'assistant-stream/utils'
 
-import { streamThreadRun, type SSEMessageVO } from '../../api'
-
-let _getThreadId: (() => string | undefined) | null = null
-
-export function bindThreadIdSource(fn: () => string | undefined) {
-  _getThreadId = fn
-}
+import { streamThreadRun, type SSEMessageVO, createThread } from '../../api'
+import { initializeConversation } from '../../lib/conversation-init'
 
 interface TransportErrorItem {
   type: 'transport-error'
@@ -73,15 +68,11 @@ export const goAgentChatModelAdapter: ChatModelAdapter = {
   async *run(options) {
     let threadId = options.unstable_threadId
 
-    if (!threadId) {
-      for (let i = 0; i < 50; i++) {
-        await new Promise((r) => setTimeout(r, 100))
-        threadId = _getThreadId?.()
-        if (threadId) break
-      }
-      if (!threadId) {
-        throw new Error('Conversation not initialized yet')
-      }
+    if (!threadId || (typeof threadId === 'string' && threadId.startsWith('__LOCALID'))) {
+      const conversation = threadId
+        ? await initializeConversation(threadId)
+        : await createThread()
+      threadId = conversation.id
     }
 
     const query = getLatestUserQuery(options.messages)
@@ -99,7 +90,7 @@ export const goAgentChatModelAdapter: ChatModelAdapter = {
     }
 
     const stop = streamThreadRun({
-      threadId,
+      threadId: threadId as string,
       query,
       parentMessageId: getLatestBackendMessageId(options.messages),
       signal: options.abortSignal,

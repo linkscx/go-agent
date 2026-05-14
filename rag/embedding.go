@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-resty/resty/v2"
 )
 
@@ -39,63 +40,49 @@ func NewHTTPEmbeddingService(config HTTPEmbeddingConfig) *HTTPEmbeddingService {
 	}
 }
 
-type dashscopeParameters struct {
-	Dimension int `json:"dimension"`
+type xunfeiEmbeddingRequest struct {
+	Model      string   `json:"model"`
+	Input      []string `json:"input"`
+	Dimensions int      `json:"dimensions"`
 }
 
-type dashscopeRequest struct {
-	Model string `json:"model"`
-	Input struct {
-		Contents []struct {
-			Text string `json:"text"`
-		} `json:"contents"`
-	} `json:"input"`
-	Parameters dashscopeParameters `json:"parameters"`
-}
-
-type dashscopeEmbedding struct {
-	Text      string    `json:"text"`
+type xunfeiEmbeddingData struct {
+	Object    string    `json:"object"`
+	Index     int       `json:"index"`
 	Embedding []float32 `json:"embedding"`
 }
 
-type dashscopeResponse struct {
-	Output struct {
-		Embeddings []dashscopeEmbedding `json:"embeddings"`
-	} `json:"output"`
+type xunfeiEmbeddingResponse struct {
+	ID    string                  `json:"id"`
+	Data  []xunfeiEmbeddingData   `json:"data"`
+	Model string                  `json:"model"`
 	Usage struct {
 		TotalTokens int `json:"total_tokens"`
 	} `json:"usage"`
-	RequestID string `json:"request_id"`
 }
 
 func (s *HTTPEmbeddingService) Embed(ctx context.Context, text string) (Vector, error) {
-	req := dashscopeRequest{
-		Model: s.config.Model,
-		Parameters: dashscopeParameters{
-			Dimension: s.config.Dimensions,
-		},
-	}
-	req.Input.Contents = []struct {
-		Text string `json:"text"`
-	}{
-		{Text: text},
+	req := xunfeiEmbeddingRequest{
+		Model:      s.config.Model,
+		Input:      []string{text},
+		Dimensions: s.config.Dimensions,
 	}
 
-	var resp dashscopeResponse
+	var resp xunfeiEmbeddingResponse
 	r := s.client.R().
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&resp)
 
-	_, err := r.Post("/services/embeddings/multimodal-embedding/multimodal-embedding")
+	_, err := r.Post("/v2/embeddings")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call embedding API: %w", err)
 	}
 
-	if len(resp.Output.Embeddings) == 0 {
+	if len(resp.Data) == 0 {
 		return nil, fmt.Errorf("empty embedding response")
 	}
-	embedLen := len(resp.Output.Embeddings[0].Embedding)
+	embedLen := len(resp.Data[0].Embedding)
 	if embedLen == 0 {
 		return nil, fmt.Errorf("embedding vector is empty")
 	}
@@ -103,5 +90,5 @@ func (s *HTTPEmbeddingService) Embed(ctx context.Context, text string) (Vector, 
 		return nil, fmt.Errorf("embedding dimension mismatch: expected %d, got %d", s.config.Dimensions, embedLen)
 	}
 
-	return Vector(resp.Output.Embeddings[0].Embedding), nil
+	return Vector(resp.Data[0].Embedding), nil
 }

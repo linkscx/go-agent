@@ -12,7 +12,9 @@ import (
 
 	"go-agent/agent"
 	ctxengine "go-agent/context"
+	"go-agent/db"
 	"go-agent/memory"
+	"go-agent/rag"
 	"go-agent/shared"
 	"go-agent/storage"
 	"go-agent/tool"
@@ -64,11 +66,46 @@ func main() {
 		},
 	}
 
+	var vectorStore *db.PGVectorStore
+
+	vectorStore, err = db.NewPGVectorStore(db.Config{
+		Host:      appConf.PGVector.Host,
+		Port:      appConf.PGVector.Port,
+		User:      appConf.PGVector.User,
+		Password:  appConf.PGVector.Password,
+		Database:  appConf.PGVector.Database,
+		Dimension: appConf.PGVector.Dimension,
+	})
+	if err != nil {
+		log.Printf("Failed to initialize vector store: %v", err)
+		vectorStore = nil
+	} else {
+		defer vectorStore.Close()
+	}
+
 	tools := []tool.Tool{
 		tool.NewReadTool(),
 		tool.CreateBashTool(shared.GetWorkspaceDir()),
 		tool.NewLoadStorageTool(memoryStorage),
 		tool.NewLoadSkillTool(),
+	}
+
+	if vectorStore != nil {
+		embedService := rag.NewHTTPEmbeddingService(rag.HTTPEmbeddingConfig{
+			APIKey:     appConf.Embedding.APIKey,
+			BaseURL:    appConf.Embedding.BaseURL,
+			Model:      appConf.Embedding.Model,
+			Dimensions: appConf.Embedding.Dimensions,
+		})
+
+		rerankService := rag.NewHTTPRerankService(rag.HTTPRerankConfig{
+			APIKey:  appConf.Rerank.APIKey,
+			BaseURL: appConf.Rerank.BaseURL,
+			Model:   appConf.Rerank.Model,
+		})
+
+		searcher := rag.NewSemanticSearcher(embedService, vectorStore, rerankService)
+		tools = append(tools, tool.NewSemanticSearchTool(searcher))
 	}
 
 	agentInstance := agent.NewAgent(

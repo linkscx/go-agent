@@ -10,14 +10,46 @@ type AppConfig struct {
 		FrontModel ModelConfig `json:"front_model"`
 		BackModel  ModelConfig `json:"back_model"`
 	} `json:"llm_providers"`
+	Indexer   IndexerConfig   `json:"indexer"`
+	PGVector  PGVectorConfig  `json:"pgvector"`
+	Embedding EmbeddingConfig `json:"embedding"`
+	Rerank    RerankConfig    `json:"rerank"`
 }
 
 type ModelConfig struct {
-	BaseURL string `json:"base_url"`
-	ApiKey  string `json:"api_key"`
-	Model   string `json:"model"`
+	BaseURL       string `json:"base_url"`
+	ApiKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	ContextWindow int    `json:"context_window"`
+}
 
-	ContextWindow int `json:"context_window"`
+type IndexerConfig struct {
+	RootPath    string `json:"root_path"`
+	ChunkerType string `json:"chunker_type"`
+	MaxLines    int    `json:"max_lines"`
+	MaxChars    int    `json:"max_chars"`
+}
+
+type PGVectorConfig struct {
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	User      string `json:"user"`
+	Password  string `json:"password"`
+	Database  string `json:"database"`
+	Dimension int    `json:"dimension"`
+}
+
+type EmbeddingConfig struct {
+	APIKey     string `json:"api_key"`
+	BaseURL    string `json:"base_url"`
+	Model      string `json:"model"`
+	Dimensions int    `json:"dimensions"`
+}
+
+type RerankConfig struct {
+	APIKey  string `json:"api_key"`
+	BaseURL string `json:"base_url"`
+	Model   string `json:"model"`
 }
 
 func NewModelConfig() ModelConfig {
