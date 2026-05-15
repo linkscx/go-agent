@@ -33,6 +33,11 @@ func NewRouter(ctrl *Controller) *gin.Engine {
 		api.POST("/conversations/:conversation_id/messages", ctrl.sendMessage)
 	}
 
+	r.Static("/assets", "./frontend/dist/assets")
+	r.NoRoute(func(c *gin.Context) {
+		c.File("./frontend/dist/index.html")
+	})
+
 	return r
 }
 

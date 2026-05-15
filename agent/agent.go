@@ -89,6 +89,10 @@ func (a *Agent) GetTurnMessages() []openai.ChatCompletionMessageParamUnion {
 	return a.contextEngine.GetMessages()
 }
 
+func (a *Agent) Compact(ctx context.Context) error {
+	return a.contextEngine.ForceCompact(ctx)
+}
+
 func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan MessageVO, confirmCh chan ConfirmationAction) error {
 	a.contextEngine.SetPolicyEventHook(func(policyName string, running bool, err error) {
 		viewCh <- MessageVO{

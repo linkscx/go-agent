@@ -231,7 +231,27 @@ func (c *Engine) shouldUpdateMemory(messages []shared.OpenAIMessage) bool {
 	return false
 }
 
-// Reset 清空所有消息（保留 system prompt）
+func (c *Engine) ForceCompact(ctx context.Context) error {
+	for _, policy := range c.policies {
+		if policy.Name() == "summarize" {
+			if c.onPolicyEvent != nil {
+				c.onPolicyEvent(policy.Name(), true, nil)
+			}
+			result, err := policy.Apply(ctx, c)
+			if c.onPolicyEvent != nil {
+				c.onPolicyEvent(policy.Name(), false, err)
+			}
+			if err != nil {
+				return fmt.Errorf("force compact: %w", err)
+			}
+			c.messages = result.Messages
+			c.recountTokens()
+			return nil
+		}
+	}
+	return nil
+}
+
 func (c *Engine) Reset() {
 	c.messages = make([]messageWrap, 0)
 	c.contextTokens = 0

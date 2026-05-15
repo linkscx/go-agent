@@ -1,19 +1,44 @@
 import { createThread, type ConversationVO } from '../api'
 
-const pending = new Map<string, Promise<ConversationVO>>()
+let singletonConversation: ConversationVO | null = null
+let initializingPromise: Promise<ConversationVO> | null = null
 
 export function initializeConversation(localId: string): Promise<ConversationVO> {
-  const existing = pending.get(localId)
-  if (existing) return existing
+  console.log('[conversation-init] initializeConversation called with localId:', localId)
+  console.log('[conversation-init] singletonConversation:', singletonConversation ? singletonConversation.id : 'null')
+  console.log('[conversation-init] initializingPromise:', initializingPromise ? 'exists' : 'null')
 
+  if (singletonConversation) {
+    console.log('[conversation-init] returning singleton conversation:', singletonConversation.id)
+    return Promise.resolve(singletonConversation)
+  }
+
+  if (initializingPromise) {
+    console.log('[conversation-init] returning existing initializingPromise')
+    return initializingPromise
+  }
+
+  console.log('[conversation-init] creating new conversation')
   const promise = createThread().then((conversation) => {
-    pending.delete(localId)
+    console.log('[conversation-init] conversation created:', conversation.id)
+    singletonConversation = conversation
+    initializingPromise = null
     return conversation
   }).catch((err) => {
-    pending.delete(localId)
+    console.error('[conversation-init] error creating conversation:', err)
+    initializingPromise = null
     throw err
   })
 
-  pending.set(localId, promise)
+  initializingPromise = promise
   return promise
+}
+
+export function getResolvedConversation(localId: string): ConversationVO | undefined {
+  return singletonConversation || undefined
+}
+
+export function clearConversationCache(): void {
+  singletonConversation = null
+  initializingPromise = null
 }

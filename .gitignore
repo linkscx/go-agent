@@ -36,5 +36,10 @@ bin/
 # OS
 .DS_Store
 Thumbs.db
+
+# Package management
 .package-lock.json
 .package.json
+
+# .playwright
+.playwright-cli/

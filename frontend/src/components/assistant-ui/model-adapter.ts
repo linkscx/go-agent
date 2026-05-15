@@ -8,7 +8,7 @@ import type {
 import type { ReadonlyJSONObject } from 'assistant-stream/utils'
 
 import { streamThreadRun, type SSEMessageVO, createThread } from '../../api'
-import { initializeConversation } from '../../lib/conversation-init'
+import { initializeConversation, getResolvedConversation } from '../../lib/conversation-init'
 
 interface TransportErrorItem {
   type: 'transport-error'
@@ -69,10 +69,14 @@ export const goAgentChatModelAdapter: ChatModelAdapter = {
     let threadId = options.unstable_threadId
 
     if (!threadId || (typeof threadId === 'string' && threadId.startsWith('__LOCALID'))) {
-      const conversation = threadId
-        ? await initializeConversation(threadId)
-        : await createThread()
-      threadId = conversation.id
+      const localId = threadId || ''
+      const cached = getResolvedConversation(localId)
+      if (cached) {
+        threadId = cached.id
+      } else {
+        const conversation = await initializeConversation(localId)
+        threadId = conversation.id
+      }
     }
 
     const query = getLatestUserQuery(options.messages)

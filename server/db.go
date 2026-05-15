@@ -137,6 +137,10 @@ func (d *DB) GetMessageChain(ctx context.Context, conversationID, messageID stri
 	return messages, nil
 }
 
+func (d *DB) DeleteMessagesByConversation(ctx context.Context, conversationID string) error {
+	return d.db.WithContext(ctx).Where("conversation_id = ?", conversationID).Delete(&ChatMessage{}).Error
+}
+
 func (d *DB) Raw() *gorm.DB {
 	return d.db
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,6 +87,10 @@ func (s *Service) ListMessages(ctx context.Context, conversationID string) ([]*C
 }
 
 func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessageID, userQuery string, eventCh chan<- StreamEvent) (*ChatMessage, error) {
+	if strings.TrimSpace(userQuery) == "/compact" {
+		return s.handleCompact(ctx, conversationID, parentMessageID, userQuery, eventCh)
+	}
+
 	history, err := s.buildHistory(ctx, conversationID, parentMessageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build history: %w", err)
@@ -193,6 +198,64 @@ func (s *Service) buildHistory(ctx context.Context, conversationID, parentMessag
 	}
 
 	return history, nil
+}
+
+func (s *Service) handleCompact(ctx context.Context, conversationID, parentMessageID, userQuery string, eventCh chan<- StreamEvent) (*ChatMessage, error) {
+	history, err := s.buildHistory(ctx, conversationID, parentMessageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build history: %w", err)
+	}
+
+	userMsg := &ChatMessage{
+		ID:              uuid.New().String(),
+		ConversationID:  conversationID,
+		ParentMessageID: parentMessageID,
+		Role:            "user",
+		Content:         userQuery,
+		Rounds:          mustMarshalJSON([]openai.ChatCompletionMessageParamUnion{openai.UserMessage(userQuery)}),
+		CreatedAt:       time.Now(),
+	}
+	if err := s.db.CreateMessage(ctx, userMsg); err != nil {
+		return nil, fmt.Errorf("failed to save user message: %w", err)
+	}
+
+	s.agent.ResetSession()
+	s.agent.SeedHistory(history)
+
+	if err := s.agent.Compact(ctx); err != nil {
+		eventCh <- StreamEvent{Event: "error", Content: fmt.Sprintf("compact failed: %v", err)}
+		return nil, err
+	}
+
+	if err := s.db.DeleteMessagesByConversation(ctx, conversationID); err != nil {
+		log.Printf("failed to delete old messages: %v", err)
+	}
+
+	assistantMsgID := uuid.New().String()
+	assistantContent := "Context has been compacted. Previous conversation history has been summarized."
+
+	eventCh <- StreamEvent{MessageID: assistantMsgID, Event: "content", Content: assistantContent}
+
+	roundMessages := s.agent.GetTurnMessages()
+
+	assistantMsg := &ChatMessage{
+		ID:              assistantMsgID,
+		ConversationID:  conversationID,
+		ParentMessageID: "",
+		Role:            "assistant",
+		Content:         assistantContent,
+		Rounds:          mustMarshalJSON(roundMessages),
+		CreatedAt:       time.Now(),
+	}
+	if err := s.db.CreateMessage(ctx, assistantMsg); err != nil {
+		return nil, fmt.Errorf("failed to save assistant message: %w", err)
+	}
+
+	if err := s.db.UpdateConversation(ctx, conversationID, time.Now()); err != nil {
+		log.Printf("failed to update conversation: %v", err)
+	}
+
+	return assistantMsg, nil
 }
 
 func mustMarshalJSON(v interface{}) string {
