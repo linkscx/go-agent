@@ -12,5 +12,30 @@
       "model": "gpt-4o-mini",
       "context_window": 128000
     }
+  },
+  "indexer": {
+    "root_path": ".",
+    "chunker_type": "line",
+    "max_lines": 100,
+    "max_chars": 2000
+  },
+  "pgvector": {
+    "host": "localhost",
+    "port": 5432,
+    "user": "postgres",
+    "password": "${POSTGRES_PASSWORD}",
+    "database": "vector_db",
+    "dimension": 32
+  },
+  "embedding": {
+    "api_key": "${EMBEDDING_API_KEY}",
+    "base_url": "https://api.openai.com/v1",
+    "model": "text-embedding-3-small",
+    "dimensions": 32
+  },
+  "rerank": {
+    "api_key": "${RERANK_API_KEY}",
+    "base_url": "https://api.openai.com/v1",
+    "model": "rerank-model"
   }
 }
