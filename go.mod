@@ -9,8 +9,6 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/google/uuid v1.6.0
-	github.com/joho/godotenv v1.5.1
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/openai/openai-go/v3 v3.24.0
 	github.com/tiktoken-go/tokenizer v0.7.0

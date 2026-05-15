@@ -5,8 +5,6 @@ import (
 	"log"
 	"path/filepath"
 
-	"github.com/joho/godotenv"
-
 	"go-agent/agent"
 	ctxengine "go-agent/context"
 	"go-agent/db"
@@ -20,8 +18,6 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
-
 	ctx := context.Background()
 	appConf, err := shared.LoadAppConfig("config.json")
 	if err != nil {
