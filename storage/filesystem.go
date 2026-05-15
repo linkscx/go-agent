@@ -35,3 +35,11 @@ func (fs *FileSystemStorage) Load(ctx context.Context, key string) (string, erro
 	}
 	return string(content), nil
 }
+
+func (fs *FileSystemStorage) StoreWithConversation(ctx context.Context, key string, value string, conversationID string) error {
+	return fs.Store(ctx, key, value)
+}
+
+func (fs *FileSystemStorage) DeleteByConversation(ctx context.Context, conversationID string) error {
+	return nil
+}

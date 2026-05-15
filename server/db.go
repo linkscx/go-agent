@@ -30,8 +30,9 @@ type ChatMessage struct {
 }
 
 type OffloadEntry struct {
-	Key   string `gorm:"primaryKey"`
-	Value string `gorm:"type:text;not null"`
+	Key            string `gorm:"primaryKey"`
+	Value          string `gorm:"type:text;not null"`
+	ConversationID string `gorm:"index"`
 }
 
 type DB struct {
@@ -100,6 +101,9 @@ func (d *DB) DeleteConversation(ctx context.Context, id string) error {
 		if err := tx.Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("conversation_id = ?", id).Delete(&OffloadEntry{}).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", id).Delete(&Conversation{}).Error
 	})
 }
@@ -149,6 +153,10 @@ func (d *DB) StoreOffload(ctx context.Context, key string, value string) error {
 	return d.db.WithContext(ctx).Save(&OffloadEntry{Key: key, Value: value}).Error
 }
 
+func (d *DB) StoreOffloadWithConversation(ctx context.Context, key string, value string, conversationID string) error {
+	return d.db.WithContext(ctx).Save(&OffloadEntry{Key: key, Value: value, ConversationID: conversationID}).Error
+}
+
 func (d *DB) LoadOffload(ctx context.Context, key string) (string, error) {
 	var entry OffloadEntry
 	err := d.db.WithContext(ctx).Where("key = ?", key).First(&entry).Error
@@ -159,6 +167,10 @@ func (d *DB) LoadOffload(ctx context.Context, key string) (string, error) {
 		return "", err
 	}
 	return entry.Value, nil
+}
+
+func (d *DB) DeleteOffloadByConversation(ctx context.Context, conversationID string) error {
+	return d.db.WithContext(ctx).Where("conversation_id = ?", conversationID).Delete(&OffloadEntry{}).Error
 }
 
 func (d *DB) Close() error {
@@ -183,4 +195,12 @@ func (s *DBStorage) Store(ctx context.Context, key string, value string) error {
 
 func (s *DBStorage) Load(ctx context.Context, key string) (string, error) {
 	return s.db.LoadOffload(ctx, key)
+}
+
+func (s *DBStorage) StoreWithConversation(ctx context.Context, key string, value string, conversationID string) error {
+	return s.db.StoreOffloadWithConversation(ctx, key, value, conversationID)
+}
+
+func (s *DBStorage) DeleteByConversation(ctx context.Context, conversationID string) error {
+	return s.db.DeleteOffloadByConversation(ctx, conversationID)
 }

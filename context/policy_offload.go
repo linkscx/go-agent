@@ -49,7 +49,6 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		}, nil
 	}
 
-	// 复制消息列表，避免修改原始数据
 	messages := make([]messageWrap, len(engine.messages))
 	copy(messages, engine.messages)
 	contextTokens := engine.contextTokens
@@ -57,7 +56,6 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 	offloadCount := len(messages) - p.KeepRecentMessages
 
 	for i := 0; i < offloadCount; i++ {
-		// 只卸载 tool 类型
 		if shared.GetRoleName(messages[i].Message) != "tool" {
 			continue
 		}
@@ -67,21 +65,26 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		if !ok {
 			continue
 		}
-		// 不需要卸载
 		if len(*contentStr) <= p.PreviewCharLimit {
 			continue
 		}
 
-		// 计算原始消息的 token 数
 		oldTokens := messages[i].Tokens
 
 		key := p.makeStorageKey(i)
-		if err := p.Storage.Store(ctx, key, *contentStr); err != nil {
+		conversationID := engine.GetConversationID()
+
+		var err error
+		if conversationID != "" {
+			err = p.Storage.StoreWithConversation(ctx, key, *contentStr, conversationID)
+		} else {
+			err = p.Storage.Store(ctx, key, *contentStr)
+		}
+		if err != nil {
 			log.Printf("failed to store offload message: %v", err)
 			continue
 		}
 
-		// 构造卸载后的消息体正文
 		abstract := (*contentStr)[0:p.PreviewCharLimit]
 		var b strings.Builder
 		b.WriteString(abstract)
@@ -89,10 +92,8 @@ func (p *OffloadPolicy) Apply(ctx context.Context, engine *Engine) (PolicyResult
 		b.WriteString(fmt.Sprintf("（更多内容已卸载，如需查看全文请使用 load_storage(key=\"%s\") 工具）\n", key))
 		newContent := b.String()
 
-		// 修改原始消息链中的消息
 		newMessage := openai.ToolMessage(newContent, engine.messages[i].Message.OfTool.ToolCallID)
 
-		// 计算新消息的 token 数并更新计数
 		newTokens := CountTokens(newMessage)
 		messages[i] = messageWrap{Message: newMessage, Tokens: newTokens}
 		contextTokens -= oldTokens - newTokens

@@ -112,6 +112,7 @@ func (s *Service) SendMessage(ctx context.Context, conversationID, parentMessage
 	assistantMsgID := uuid.New().String()
 
 	s.agent.ResetSession()
+	s.agent.SetConversationID(conversationID)
 	s.agent.SeedHistory(history)
 
 	viewCh := make(chan agent.MessageVO, 100)
@@ -220,6 +221,7 @@ func (s *Service) handleCompact(ctx context.Context, conversationID, parentMessa
 	}
 
 	s.agent.ResetSession()
+	s.agent.SetConversationID(conversationID)
 	s.agent.SeedHistory(history)
 
 	if err := s.agent.Compact(ctx); err != nil {

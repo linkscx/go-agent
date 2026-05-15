@@ -9,8 +9,8 @@ import (
 	"github.com/openai/openai-go/v3"
 
 	"go-agent/memory"
-	"go-agent/skill"
 	"go-agent/shared"
+	"go-agent/skill"
 )
 
 type messageWrap struct {
@@ -26,6 +26,7 @@ type Engine struct {
 	onMemoryEvent        func(running bool, err error)
 	contextTokens        int
 	contextWindow        int
+	conversationID       string
 
 	memory       memory.Memory
 	skillManager SkillManager
@@ -169,6 +170,14 @@ func (c *Engine) SetPolicyEventHook(hook func(policyName string, running bool, e
 
 func (c *Engine) SetMemoryEventHook(hook func(running bool, err error)) {
 	c.onMemoryEvent = hook
+}
+
+func (c *Engine) SetConversationID(id string) {
+	c.conversationID = id
+}
+
+func (c *Engine) GetConversationID() string {
+	return c.conversationID
 }
 
 func (c *Engine) BuildSystemPrompt() string {

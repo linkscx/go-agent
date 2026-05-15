@@ -93,6 +93,10 @@ func (a *Agent) Compact(ctx context.Context) error {
 	return a.contextEngine.ForceCompact(ctx)
 }
 
+func (a *Agent) SetConversationID(id string) {
+	a.contextEngine.SetConversationID(id)
+}
+
 func (a *Agent) RunStreaming(ctx context.Context, query string, viewCh chan MessageVO, confirmCh chan ConfirmationAction) error {
 	a.contextEngine.SetPolicyEventHook(func(policyName string, running bool, err error) {
 		viewCh <- MessageVO{
